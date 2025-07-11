@@ -12,18 +12,24 @@ from guided_diffusion.customloader import MRBoneDataset
 from guided_diffusion.bratsloader import BRATSDataset
 
 
-dat_path = "../data"
-dat_path2 = "../data_eg"
-# ds = MRBoneDataset(dat_path)
-ds = BRATSDataset(dat_path2)
+dat_path = "../data/training"
+# dat_path = "../data/"
+# dat_path2 = "../data_eg"
+ds = MRBoneDataset(dat_path)
+# ds = BRATSDataset(dat_path2)
 datal= torch.utils.data.DataLoader(
     ds,
     batch_size=1,
     shuffle=True)
+
+print(len(datal))
 data = iter(datal)
 
 for batch in data:
-    print(type(batch))
+    x = batch[0]
+    y = batch[1]
+    print(x.shape)
+    print(y.shape)
     break
 
 
