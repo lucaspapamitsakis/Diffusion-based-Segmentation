@@ -8,6 +8,7 @@ sys.path.append(".")
 from guided_diffusion import dist_util, logger
 from guided_diffusion.resample import create_named_schedule_sampler
 from guided_diffusion.bratsloader import BRATSDataset
+from guided_diffusion.customloader import MRBoneDataset
 from guided_diffusion.script_util import (
     model_and_diffusion_defaults,
     create_model_and_diffusion,
@@ -33,7 +34,8 @@ def main():
     schedule_sampler = create_named_schedule_sampler(args.schedule_sampler, diffusion,  maxt=1000)
 
     logger.log("creating data loader...")
-    ds = BRATSDataset(args.data_dir, test_flag=False)
+    ds = MRBoneDataset(args.data_dir)
+    # ds = BRATSDataset(args.data_dir, test_flag=False)
     datal= th.utils.data.DataLoader(
         ds,
         batch_size=args.batch_size,

@@ -23,7 +23,7 @@ from torchvision.transforms import Resize
 
 
 
-class MRBoneDataset(torch.utils.data.Dataset):
+class MRBoneDatasetNorm(torch.utils.data.Dataset):
     def __init__(self, directory, transform=None):
         """
         Initializes the dataset. This constructor will now iterate through all
@@ -88,18 +88,18 @@ class MRBoneDataset(torch.utils.data.Dataset):
         bone_slice = bone_img_data[:, :, slice_index].unsqueeze(0) # Add channel dim
 
         # Apply transformations
-        resize_transform = Resize((224, 224), antialias=True)
-        mr_slice_resized = resize_transform(mr_slice)
-        bone_slice_resized = resize_transform(bone_slice)
+        # resize_transform = Resize((219, 252), antialias=True)
+        # mr_slice_resized = resize_transform(mr_slice)
+        # bone_slice_resized = resize_transform(bone_slice)
         
         # Normalize the MR slice
-        mr_max = mr_slice_resized.max()
-        mr_min = mr_slice_resized.min()
+        mr_max = mr_slice.max()
+        mr_min = mr_slice.min()
         if mr_max > mr_min:
-            mr_slice_resized = (mr_slice_resized - mr_min) / (mr_max - mr_min)
+            mr_slice = (mr_slice - mr_min) / (mr_max - mr_min)
         
         # Binarize the bone mask
-        bone_slice_resized = torch.where(bone_slice_resized > 0, 1.0, 0.5)
+        # bone_slice_resized = torch.where(bone_slice_resized > 0, 1.0, 0.0)
         
         # Note: If you passed in transforms (like from MONAI or torchvision),
         # you would apply them here. For example:
@@ -108,7 +108,4 @@ class MRBoneDataset(torch.utils.data.Dataset):
         #     sample = self.transform(sample)
         # return sample['mr'], sample['seg']
         
-        return mr_slice_resized, bone_slice_resized
-
-
-
+        return mr_slice, bone_slice
