@@ -7,7 +7,7 @@ import argparse
 import os
 import nibabel as nib
 from visdom import Visdom
-viz = Visdom(port=8850)
+viz = Visdom(port=8097)
 import sys
 import random
 sys.path.append(".")
@@ -17,6 +17,7 @@ import torch as th
 import torch.distributed as dist
 from guided_diffusion import dist_util, logger
 from guided_diffusion.bratsloader import BRATSDataset
+from guided_diffusion.customloader import MRBoneDataset
 from guided_diffusion.script_util import (
     NUM_CLASSES,
     model_and_diffusion_defaults,
@@ -51,7 +52,7 @@ def main():
         **args_to_dict(args, model_and_diffusion_defaults().keys())
     )
 
-    ds = BRATSDataset(args.data_dir, test_flag=True)
+    ds = MRBoneDataset(args.data_dir)
     datal = th.utils.data.DataLoader(
         ds,
         batch_size=1,

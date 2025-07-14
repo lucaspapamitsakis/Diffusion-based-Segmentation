@@ -18,7 +18,7 @@ from guided_diffusion.script_util import (
 import torch as th
 from guided_diffusion.train_util import TrainLoop
 from visdom import Visdom
-viz = Visdom(port=8850)
+viz = Visdom(port=8097)
 
 def main():
     args = create_argparser().parse_args()
