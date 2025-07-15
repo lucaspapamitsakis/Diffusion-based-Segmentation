@@ -1,0 +1,4 @@
+# Ignore data, results, and saved model files
+/results/
+*.pt
+*.npy
