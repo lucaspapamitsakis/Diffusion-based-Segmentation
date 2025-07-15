@@ -24,7 +24,7 @@ from torchvision.transforms import Resize
 
 
 class MRBoneDataset(torch.utils.data.Dataset):
-    def __init__(self, directory, transform=None):
+    def __init__(self, directory, transform=None, test_flag=False):
         """
         Initializes the dataset. This constructor will now iterate through all
         3D volumes to create a flat list of all available 2D slices.
@@ -32,6 +32,7 @@ class MRBoneDataset(torch.utils.data.Dataset):
         super().__init__()
         self.transform = transform
         self.slice_map = [] # This will store a reference to every single slice
+        self.test_flag=test_flag
 
         # First, find all the paired 3D volumes
         volume_paths = []
@@ -99,7 +100,7 @@ class MRBoneDataset(torch.utils.data.Dataset):
             mr_slice_resized = (mr_slice_resized - mr_min) / (mr_max - mr_min)
         
         # Binarize the bone mask
-        bone_slice_resized = torch.where(bone_slice_resized > 0, 1.0, 0.5)
+        bone_slice_resized = torch.where(bone_slice_resized > 0.5, 1.0, 0.0)
         
         # Note: If you passed in transforms (like from MONAI or torchvision),
         # you would apply them here. For example:
@@ -108,7 +109,8 @@ class MRBoneDataset(torch.utils.data.Dataset):
         #     sample = self.transform(sample)
         # return sample['mr'], sample['seg']
         
-        return mr_slice_resized, bone_slice_resized
-
-
+        if self.test_flag:
+            return (mr_slice_resized, bone_slice_resized, slice_info)
+        
+        return (mr_slice_resized, bone_slice_resized)
 

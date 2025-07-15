@@ -42,6 +42,13 @@ If you want to apply our code to another dataset, make sure the loaded image has
 
 ## Usage
 
+```
+ml miniconda
+conda activate ddpm_jw
+python -m visdom.server 
+```
+
+
 We set the flags as follows:
 ```
 MODEL_FLAGS="--image_size 256 --num_channels 128 --class_cond False --num_res_blocks 2 --num_heads 1 --learn_sigma True --use_scale_shift_norm False --attention_resolutions 16"

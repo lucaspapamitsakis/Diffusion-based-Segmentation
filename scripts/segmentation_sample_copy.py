@@ -31,19 +31,10 @@ th.cuda.manual_seed_all(seed)
 np.random.seed(seed)
 random.seed(seed)
 
-def visualize(img):
-    _min = img.min()
-    _max = img.max()
-    normalized_img = (img - _min)/ (_max - _min)
-    return normalized_img
-
-def dice_score(pred, targs):
-    pred = (pred>0).float()
-    return 2. * (pred*targs).sum() / (pred+targs).sum()
-
 
 def main():
     args = create_argparser().parse_args()
+
     dist_util.setup_dist()
     logger.configure()
 
@@ -51,14 +42,6 @@ def main():
     model, diffusion = create_model_and_diffusion(
         **args_to_dict(args, model_and_diffusion_defaults().keys())
     )
-
-    ds = MRBoneDataset(args.data_dir, test_flag=True)
-    datal = th.utils.data.DataLoader(
-        ds,
-        batch_size=args.batch_size,
-        shuffle=False)
-    data = iter(datal)  
-    all_images = []
     model.load_state_dict(
         dist_util.load_state_dict(args.model_path, map_location="cpu")
     )
@@ -66,19 +49,51 @@ def main():
     if args.use_fp16:
         model.convert_to_fp16()
     model.eval()
-    while len(all_images) * args.batch_size < args.num_samples:
-        b, path = next(data)  #should return an image from the dataloader "data"
-        c = th.randn_like(b[:, :1, ...])
-        img = th.cat((b, c), dim=1)     #add a noise channel$
-        slice_ID=path[0].split("/", -1)[3]
 
-        viz.image(visualize(img[0,0,...]), opts=dict(caption="img input0"))
-        viz.image(visualize(img[0, 1, ...]), opts=dict(caption="img input1"))
-        viz.image(visualize(img[0, 2, ...]), opts=dict(caption="img input2"))
-        viz.image(visualize(img[0, 3, ...]), opts=dict(caption="img input3"))
-        viz.image(visualize(img[0, 4, ...]), opts=dict(caption="img input4"))
+    logger.log("loading data...")
 
-        logger.log("sampling...")
+    # # --- Start of Data Loading ---
+    # # Get all file paths from the data directory
+    # all_files = [f for f in os.listdir(args.data_dir) if os.path.isfile(os.path.join(args.data_dir, f))]
+    
+    # # Extract unique volume IDs from filenames (e.g., "volume_01" from "volume_01.nii.gz")
+    # # volume_ids = sorted(list(set([os.path.splitext(os.path.basename(f))[0] for f in all_files])))
+    # volume_ids = sorted([f.split(".")[0] for f in all_files])
+    
+    # logger.log(f"Found volume IDs: {volume_ids}")
+
+    # Instantiate your custom MRBoneDataset
+    ds = MRBoneDataset(args.data_dir, test_flag=True)
+    
+    data = th.utils.data.DataLoader(
+        ds,
+        batch_size=args.batch_size,
+        shuffle=False
+    )
+    # --- End of Modified Data Loading ---
+    
+    logger.log("creating samples...")
+
+    # --- Start of Modified Sampling Loop ---
+    # unpacks the output from MRBoneDataset
+    for j, (img, _, slice_info) in enumerate(data):
+        
+        # Extract volume_id and slice_index for a unique filename
+        # Assumes a batch size of 1
+        volume_id = slice_info["mr_path"][0].split("1B")[1][:4]
+        slice_index = slice_info["slice_index"].item()
+        
+        # Create a descriptive and unique ID, e.g., "volume_01_slice_025"
+        slice_ID = f"{volume_id}_slice_{slice_index:03d}"
+        
+        c = th.randn_like(img[:, :1, ...])
+        img = th.cat((img, c), dim=1)     #add a noise channel
+
+
+        viz.image(img[0,0,...], opts=dict(caption="img input0"))
+        viz.image(img[0, 1, ...], opts=dict(caption="img input1"))
+
+        logger.log(f"sampling {slice_ID}...")
 
         start = th.cuda.Event(enable_timing=True)
         end = th.cuda.Event(enable_timing=True)
@@ -87,12 +102,15 @@ def main():
         for i in range(args.num_ensemble):  #this is for the generation of an ensemble of 5 masks.
             model_kwargs = {}
             start.record()
+            shape = (args.batch_size, 2, args.image_size, args.image_size)
+
             sample_fn = (
                 diffusion.p_sample_loop_known if not args.use_ddim else diffusion.ddim_sample_loop_known
             )
             sample, x_noisy, org = sample_fn(
                 model,
-                (args.batch_size, 3, args.image_size, args.image_size), img,
+                shape,
+                img,
                 clip_denoised=args.clip_denoised,
                 model_kwargs=model_kwargs,
             )
@@ -102,8 +120,21 @@ def main():
             print('time for 1 sample', start.elapsed_time(end))  #time measurement for the generation of 1 sample
 
             s = th.tensor(sample)
-            viz.image(visualize(sample[0, 0, ...]), opts=dict(caption="sampled output"))
-            th.save(s, './results/'+str(slice_ID)+'_output'+str(i)) #save the generated mask
+            viz.image(sample[0, 0, ...], opts=dict(caption="sampled output"))
+            sample_path = f'./results/{slice_ID}_output{i}.pt'
+            th.save(s, sample_path) #save the generated mask
+
+        
+        # The rest of the saving logic remains the same
+        # sample = ((sample + 1) * 127.5).clamp(0, 255).to(th.uint8)
+        # sample = sample.permute(0, 2, 3, 1)
+        # sample = sample.contiguous()
+
+        # out_path = os.path.join(logger.get_dir(), f"sample_{slice_ID}.npy")
+        # np.save(out_path, sample.cpu().numpy())
+
+    logger.log("sampling complete")
+
 
 def create_argparser():
     defaults = dict(
