@@ -15,10 +15,6 @@ import warnings
 from collections import defaultdict
 from contextlib import contextmanager
 
-# PyTorch TensorBoard support
-from torch.utils.tensorboard import SummaryWriter
-
-
 DEBUG = 10
 INFO = 20
 WARN = 30
@@ -153,30 +149,42 @@ class CSVOutputFormat(KVWriter):
 
 class TensorBoardOutputFormat(KVWriter):
     """
-    Dumps key/value pairs into TensorBoard's format.
+    Dumps key/value pairs into TensorBoard's numeric format.
     """
+
     def __init__(self, dir):
         os.makedirs(dir, exist_ok=True)
-        self.writer = SummaryWriter(log_dir=dir)
-        self.step = 0
+        self.dir = dir
+        self.step = 1
+        prefix = "events"
+        path = osp.join(osp.abspath(dir), prefix)
+        import tensorflow as tf
+        from tensorflow.python import pywrap_tensorflow
+        from tensorflow.core.util import event_pb2
+        from tensorflow.python.util import compat
+
+        self.tf = tf
+        self.event_pb2 = event_pb2
+        self.pywrap_tensorflow = pywrap_tensorflow
+        self.writer = pywrap_tensorflow.EventsWriter(compat.as_bytes(path))
 
     def writekvs(self, kvs):
-        global_step = kvs.get("step")
-        if global_step is None:
-            global_step = self.step
+        def summary_val(k, v):
+            kwargs = {"tag": k, "simple_value": float(v)}
+            return self.tf.Summary.Value(**kwargs)
 
-        for k, v in kvs.items():
-            if hasattr(v, "__float__"):
-                self.writer.add_scalar(k, v, global_step)
-
+        summary = self.tf.Summary(value=[summary_val(k, v) for k, v in kvs.items()])
+        event = self.event_pb2.Event(wall_time=time.time(), summary=summary)
+        event.step = (
+            self.step
+        )  # is there any reason why you'd want to specify the step?
+        self.writer.WriteEvent(event)
+        self.writer.Flush()
         self.step += 1
-
-    def write_image(self, key, value, step):
-        self.writer.add_image(key, value, step)
 
     def close(self):
         if self.writer:
-            self.writer.close()
+            self.writer.Close()
             self.writer = None
 
 
@@ -241,13 +249,6 @@ def log(*args, level=INFO):
     Write the sequence of args, with no separators, to the console and output files (if you've configured an output file).
     """
     get_current().log(*args, level=level)
-
-
-def log_image(key, val, step):
-    """
-    Log an image to TensorBoard.
-    """
-    get_current().log_image(key, val, step)
 
 
 def debug(*args):
@@ -350,11 +351,6 @@ class Logger(object):
         oldval, cnt = self.name2val[key], self.name2cnt[key]
         self.name2val[key] = oldval * cnt / (cnt + 1) + val / (cnt + 1)
         self.name2cnt[key] = cnt + 1
-
-    def log_image(self, key, val, step):
-        for fmt in self.output_formats:
-            if hasattr(fmt, "write_image"):
-                fmt.write_image(key, val, step)
 
     def dumpkvs(self):
         if self.comm is None:
@@ -496,3 +492,4 @@ def scoped_configure(dir=None, format_strs=None, comm=None):
     finally:
         Logger.CURRENT.close()
         Logger.CURRENT = prevlogger
+

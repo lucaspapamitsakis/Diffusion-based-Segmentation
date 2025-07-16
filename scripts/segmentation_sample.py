@@ -6,8 +6,6 @@ numpy array. This can be used to produce samples for FID evaluation.
 import argparse
 import os
 import nibabel as nib
-from visdom import Visdom
-viz = Visdom(port=8097)
 import sys
 import random
 sys.path.append(".")
@@ -37,28 +35,16 @@ def visualize(img):
     normalized_img = (img - _min)/ (_max - _min)
     return normalized_img
 
-def dice_score(pred, targs):
-    pred = (pred>0).float()
-    return 2. * (pred*targs).sum() / (pred+targs).sum()
-
-
 def main():
     args = create_argparser().parse_args()
+
     dist_util.setup_dist()
-    logger.configure()
+    logger.configure(format_strs=['stdout', 'log', 'tensorboard'])
 
     logger.log("creating model and diffusion...")
     model, diffusion = create_model_and_diffusion(
         **args_to_dict(args, model_and_diffusion_defaults().keys())
     )
-
-    ds = MRBoneDataset(args.data_dir, test_flag=True)
-    datal = th.utils.data.DataLoader(
-        ds,
-        batch_size=args.batch_size,
-        shuffle=False)
-    data = iter(datal)  
-    all_images = []
     model.load_state_dict(
         dist_util.load_state_dict(args.model_path, map_location="cpu")
     )
@@ -66,44 +52,69 @@ def main():
     if args.use_fp16:
         model.convert_to_fp16()
     model.eval()
-    while len(all_images) * args.batch_size < args.num_samples:
-        b, path = next(data)  #should return an image from the dataloader "data"
-        c = th.randn_like(b[:, :1, ...])
-        img = th.cat((b, c), dim=1)     #add a noise channel$
-        slice_ID=path[0].split("/", -1)[3]
 
-        viz.image(visualize(img[0,0,...]), opts=dict(caption="img input0"))
-        viz.image(visualize(img[0, 1, ...]), opts=dict(caption="img input1"))
-        viz.image(visualize(img[0, 2, ...]), opts=dict(caption="img input2"))
-        viz.image(visualize(img[0, 3, ...]), opts=dict(caption="img input3"))
-        viz.image(visualize(img[0, 4, ...]), opts=dict(caption="img input4"))
+    logger.log("loading data...")
+    
+    ds = MRBoneDataset(args.data_dir, test_flag=True)
+    
+    data = th.utils.data.DataLoader(
+        ds,
+        batch_size=args.batch_size,
+        shuffle=False
+    )
+    
+    logger.log("creating samples...")
 
-        logger.log("sampling...")
+    for j, (img, seg, slice_info) in enumerate(data):
+        
+        volume_id = slice_info["mr_path"][0].split("1B")[1][:4]
+        slice_index = slice_info["slice_index"].item()
+        
+        slice_ID = f"{volume_id}_slice_{slice_index:03d}"
+        
+        c = th.randn_like(img[:, :1, ...])
+        img = th.cat((img, c), dim=1)     #add a noise channel
+
+        # Log input MR and noise to TensorBoard
+        logger.log_image(f"sample_{slice_ID}/input_MR", visualize(img[0, 0, ...]).unsqueeze(0), j)
+        # logger.log_image(f"sample_{slice_ID}/input_Noise", visualize(img[0, 1, ...]).unsqueeze(0), j)
+        logger.log_image(f"sample_{slice_ID}/ground_Truth", visualize(seg[0, 0, ...]).unsqueeze(0), j)
+
+        logger.log(f"sampling {slice_ID}...")
 
         start = th.cuda.Event(enable_timing=True)
         end = th.cuda.Event(enable_timing=True)
 
-
-        for i in range(args.num_ensemble):  #this is for the generation of an ensemble of 5 masks.
+        for i in range(args.num_ensemble):
             model_kwargs = {}
             start.record()
+            shape = (args.batch_size, 2, args.image_size, args.image_size)
+
             sample_fn = (
                 diffusion.p_sample_loop_known if not args.use_ddim else diffusion.ddim_sample_loop_known
             )
             sample, x_noisy, org = sample_fn(
                 model,
-                (args.batch_size, 3, args.image_size, args.image_size), img,
+                shape,
+                img,
                 clip_denoised=args.clip_denoised,
                 model_kwargs=model_kwargs,
             )
 
             end.record()
             th.cuda.synchronize()
-            print('time for 1 sample', start.elapsed_time(end))  #time measurement for the generation of 1 sample
+            print('time for 1 sample', start.elapsed_time(end))
 
             s = th.tensor(sample)
-            viz.image(visualize(sample[0, 0, ...]), opts=dict(caption="sampled output"))
-            th.save(s, './results/'+str(slice_ID)+'_output'+str(i)) #save the generated mask
+            
+            # Log the generated sample to TensorBoard
+            logger.log_image(f"sample_{slice_ID}/output_{i}", visualize(s[0, 0, ...]).unsqueeze(0), j)
+            
+            sample_path = f'./results/{slice_ID}_output{i}.pt'
+            th.save(s, sample_path)
+
+    logger.log("sampling complete")
+
 
 def create_argparser():
     defaults = dict(
@@ -122,5 +133,4 @@ def create_argparser():
 
 
 if __name__ == "__main__":
-
     main()

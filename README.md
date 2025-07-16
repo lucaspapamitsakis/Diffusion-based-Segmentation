@@ -45,7 +45,9 @@ If you want to apply our code to another dataset, make sure the loaded image has
 ```
 ml miniconda
 conda activate ddpm_jw
-python -m visdom.server 
+
+Run the following
+tensorboard --logdir=.results/v10.2 
 ```
 
 
@@ -64,7 +66,7 @@ The model will be saved in the *results* folder.
 For sampling an ensemble of 5 segmentation masks with the DDPM approach, run:
 
 ```
-python scripts/segmentation_sample.py  --data_dir ./data/testing  --model_path ./results/savedmodel005000.pt --num_ensemble=5 $MODEL_FLAGS $DIFFUSION_FLAGS
+python scripts/segmentation_sample.py  --data_dir ./data/testing  --model_path ./results/savedmodel001000.pt --num_ensemble=5 $MODEL_FLAGS $DIFFUSION_FLAGS
 ```
 
 

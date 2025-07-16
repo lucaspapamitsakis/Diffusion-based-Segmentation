@@ -9,11 +9,11 @@ import torch.nn.functional as F
 from torchvision.utils import save_image
 import torch
 import math
-
+from visdom import Visdom
+viz = Visdom(port=8097)
 import numpy as np
 import torch as th
 from .train_util import visualize
-from . import logger
 from .nn import mean_flat
 from .losses import normal_kl, discretized_gaussian_log_likelihood
 from scipy import ndimage
@@ -571,11 +571,7 @@ class GaussianDiffusion:
                 t = th.tensor([i] * shape[0], device=device)
                 if i%100==0:
                     print('sampling step', i)
-                    logger.log_image(
-                        "progressive_sample",
-                        visualize(img.cpu()[0, -1, ...]).unsqueeze(0),
-                        i
-                    )
+                    viz.image(visualize(img.cpu()[0, -1,...]), opts=dict(caption="sample"+ str(i) ))
 
                 with th.no_grad():
                     if img.shape != (1, 2, 224, 224):
@@ -768,6 +764,7 @@ class GaussianDiffusion:
         ):
 
             final = sample
+       # viz.image(final["sample"].cpu()[0, ...], opts=dict(caption="sample"+ str(10) ))
         return final["sample"]
 
 

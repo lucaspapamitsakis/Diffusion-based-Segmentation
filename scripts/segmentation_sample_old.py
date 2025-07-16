@@ -90,8 +90,8 @@ def main():
         img = th.cat((img, c), dim=1)     #add a noise channel
 
 
-        viz.image(img[0,0,...], opts=dict(caption="img input0"))
-        viz.image(img[0, 1, ...], opts=dict(caption="img input1"))
+        viz.image(visualize(img[0,0,...]), opts=dict(caption="img input0"))
+        viz.image(visualize(img[0, 1, ...]), opts=dict(caption="img input1"))
 
         logger.log(f"sampling {slice_ID}...")
 
@@ -120,7 +120,7 @@ def main():
             print('time for 1 sample', start.elapsed_time(end))  #time measurement for the generation of 1 sample
 
             s = th.tensor(sample)
-            viz.image(sample[0, 0, ...], opts=dict(caption="sampled output"))
+            viz.image(visualize(sample[0, 0, ...]), opts=dict(caption="sampled output"))
             sample_path = f'./results/{slice_ID}_output{i}.pt'
             th.save(s, sample_path) #save the generated mask
 

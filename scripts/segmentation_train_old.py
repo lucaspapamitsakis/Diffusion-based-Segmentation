@@ -17,12 +17,14 @@ from guided_diffusion.script_util import (
 )
 import torch as th
 from guided_diffusion.train_util import TrainLoop
+from visdom import Visdom
+viz = Visdom(port=8097)
 
 def main():
     args = create_argparser().parse_args()
 
     dist_util.setup_dist()
-    logger.configure(format_strs=['stdout', 'log', 'csv', 'tensorboard'])
+    logger.configure()
 
     logger.log("creating model and diffusion...")
     model, diffusion = create_model_and_diffusion(
@@ -75,7 +77,7 @@ def create_argparser():
         ema_rate="0.9999",  # comma-separated list of EMA values
         log_interval=100,
         save_interval=1000,
-        resume_checkpoint='',#'./results/pretrainedmodel.pt",
+        resume_checkpoint='',#'"./results/pretrainedmodel.pt",
         use_fp16=False,
         fp16_scale_growth=1e-3,
     )
