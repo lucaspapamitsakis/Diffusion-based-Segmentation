@@ -170,19 +170,15 @@ class TrainLoop:
 
 
             try:
-                    mr_batch, seg_batch = next(data_iter)
+                    batch, cond = next(data_iter)
             except StopIteration:
                     # StopIteration is thrown if dataset ends
                     # reinitialize data loader
                     data_iter = iter(self.dataloader)
-                    mr_batch, seg_batch = next(data_iter)
+                    batch, cond = next(data_iter)
 
-            self.run_step(mr_batch, seg_batch)
+            self.run_step(batch, cond)
 
-            # Periodically log generated images for visualization
-            if self.step % self.log_interval == 0 and self.step > 0:
-                logger.log(f"Step {self.step}: logging a sample image to TensorBoard...")
-                self.log_sample_image(mr_batch, seg_batch)
            
             i += 1
           
@@ -197,40 +193,6 @@ class TrainLoop:
         # Save the last checkpoint if it wasn't already saved.
         if (self.step - 1) % self.save_interval != 0:
             self.save()
-
-    def log_sample_image(self, mr_batch, seg_batch):
-        # Ensure the model is in evaluation mode and no gradients are computed
-        self.model.eval()
-        with th.no_grad():
-            # Prepare a single image from the batch for sampling
-            # Take first image of the batch for consistent visualization
-            mr_image = mr_batch[:1,...].to(dist_util.dev())
-
-            # sampling function needs the MR image and a noise channel
-            noise = th.randn_like(mr_image[:, :1, ...])
-            # print(noise.shape)
-            model_input = th.cat([mr_image, noise], dim=1)
-            # print(model_input.shape)
-            
-            # Define the shape for the output sample
-            shape = (1, 2, self.model.image_size, self.model.image_size)
-
-            # Run the full sampling loop to generate a clean image
-            sample, _, _ = self.diffusion.p_sample_loop_known(
-                self.model,
-                shape,
-                model_input,
-                clip_denoised=True
-            )
-            sample = th.tensor(sample)
-            # Log the original MR, the ground truth segmentation, and the generated sample
-            logger.log_image("sample/0_input_mr", visualize(mr_image[0]), self.step)
-            logger.log_image("sample/1_ground_truth_seg", visualize(seg_batch[0]), self.step)
-            # The model output has 2 channels, the segmentation is the first one
-            logger.log_image("sample/2_generated_seg", visualize(sample[0,0,...]).unsqueeze(0), self.step)
-            
-        # Return the model to training mode
-        self.model.train()
 
     def run_step(self, batch, cond):
         batch=th.cat((batch, cond), dim=1)
@@ -374,6 +336,3 @@ def log_loss_dict(diffusion, ts, losses):
         for sub_t, sub_loss in zip(ts.cpu().numpy(), values.detach().cpu().numpy()):
             quartile = int(4 * sub_t / diffusion.num_timesteps)
             logger.logkv_mean(f"{key}_q{quartile}", sub_loss)
-
-
-            
