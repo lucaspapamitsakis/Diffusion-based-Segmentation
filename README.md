@@ -46,8 +46,8 @@ If you want to apply our code to another dataset, make sure the loaded image has
 ml miniconda
 conda activate ddpm_jw
 
-Run the following
-tensorboard --logdir=.results/v10.2 
+
+tensorboard --logdir=./results/tb
 ```
 
 
@@ -55,7 +55,9 @@ We set the flags as follows:
 ```
 MODEL_FLAGS="--image_size 256 --num_channels 128 --class_cond False --num_res_blocks 2 --num_heads 1 --learn_sigma True --use_scale_shift_norm False --attention_resolutions 16"
 DIFFUSION_FLAGS="--diffusion_steps 1000 --noise_schedule linear --rescale_learned_sigmas False --rescale_timesteps False"
-TRAIN_FLAGS="--lr 1e-4 --batch_size 8" 
+TRAIN_FLAGS="--lr 1e-4 --batch_size 8"
+
+
 ```
 To train the segmentation model, run
 
@@ -66,7 +68,7 @@ The model will be saved in the *results* folder.
 For sampling an ensemble of 5 segmentation masks with the DDPM approach, run:
 
 ```
-python scripts/segmentation_sample.py  --data_dir ./data/testing  --model_path ./results/savedmodel010000.pt --num_ensemble=5 $MODEL_FLAGS $DIFFUSION_FLAGS
+python scripts/segmentation_sample.py  --data_dir ./data/testing  --model_path ./results/v10.4/savedmodel010000.pt --num_ensemble=5 $MODEL_FLAGS $DIFFUSION_FLAGS
 ```
 
 

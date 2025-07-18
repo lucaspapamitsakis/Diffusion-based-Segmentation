@@ -35,6 +35,18 @@ def visualize(img):
     normalized_img = (img - _min)/ (_max - _min)
     return normalized_img
 
+def dice_coefficient(pred, target, smooth=1e-5):
+
+    target = target.to(pred.device)
+    pred = pred.contiguous()
+    target = target.contiguous()
+    
+    intersection = (pred * target).sum(dim=2).sum(dim=2)
+    
+    dice = (2. * intersection + smooth) / (pred.sum(dim=2).sum(dim=2) + target.sum(dim=2).sum(dim=2) + smooth)
+    
+    return dice.mean()
+
 def main():
     args = create_argparser().parse_args()
 
@@ -65,6 +77,8 @@ def main():
     
     logger.log("creating samples...")
 
+    all_dice_scores = []
+
     for j, (img, seg, slice_info) in enumerate(data):
         
         volume_id = slice_info["mr_path"][0].split("1B")[1][:4]
@@ -75,15 +89,20 @@ def main():
         c = th.randn_like(img[:, :1, ...])
         img = th.cat((img, c), dim=1)     #add a noise channel
 
-        # Log input MR and noise to TensorBoard
-        logger.log_image(f"sample_{slice_ID}/input_MR", visualize(img[0, 0, ...]).unsqueeze(0), j)
-        # logger.log_image(f"sample_{slice_ID}/input_Noise", visualize(img[0, 1, ...]).unsqueeze(0), j)
-        logger.log_image(f"sample_{slice_ID}/ground_Truth", visualize(seg[0, 0, ...]).unsqueeze(0), j)
+        # Log input MR and ground truth to TensorBoard
+        # NOTE that the above code concatenates the noise to the (mr) img var, so we must do the double-0 idx & unsqueeze for the MR
+        logger.log_image(f"sample_{slice_ID}/1_input_MR", visualize(img[0,0, ...]).unsqueeze(0), j)
+        # logger.log_image(f"sample_{slice_ID}/input_Noise", visualize(img[0, 1, ...]).unsqueeze(0), j) # THIS IS THE NOISE
+        logger.log_image(f"sample_{slice_ID}/2_ground_Truth", visualize(seg[0, ...]), j)
 
         logger.log(f"sampling {slice_ID}...")
 
         start = th.cuda.Event(enable_timing=True)
         end = th.cuda.Event(enable_timing=True)
+
+        # Make a dummy var to hold the ensemble sample info
+        # sample_ensemble = th.zeros_like(img[:, :1, ...])
+        sample_ensemble = []
 
         for i in range(args.num_ensemble):
             model_kwargs = {}
@@ -103,15 +122,59 @@ def main():
 
             end.record()
             th.cuda.synchronize()
-            print('time for 1 sample', start.elapsed_time(end))
+            print(f'time for 1 sample ({slice_ID}_output{i}):', start.elapsed_time(end))
 
             s = th.tensor(sample)
-            
+            sample_ensemble.append(s)
+            # sample_ensemble = torch.cat((sample_ensemble, s), dim=1)
+
             # Log the generated sample to TensorBoard
-            logger.log_image(f"sample_{slice_ID}/output_{i}", visualize(s[0, 0, ...]).unsqueeze(0), j)
+            # logger.log_image(f"sample_{slice_ID}/output_{i}", visualize(s[0, 0, ...]).unsqueeze(0), j)
             
-            sample_path = f'./results/{slice_ID}_output{i}.pt'
-            th.save(s, sample_path)
+            # sample_path = f'./results/{slice_ID}_output{i}.pt'
+            # th.save(s, sample_path)
+
+        sample_ensemble = th.cat(sample_ensemble, dim=1)
+        mean_ensemble = th.mean(sample_ensemble, dim=1, keepdim=True)
+        var_ensemble = th.var(sample_ensemble, dim=1, keepdim=True)
+        # Binarize the ensemble prediction segment
+        pred_ensemble = th.where(mean_ensemble > 0.5, 1.0, 0.0)
+
+        logger.log_image(f"sample_{slice_ID}/3_ensemble_threshold", visualize(pred_ensemble[0, ...]), j)
+        logger.log_image(f"sample_{slice_ID}/4_ensemble_mean", visualize(mean_ensemble[0, ...]), j)
+        logger.log_image(f"sample_{slice_ID}/5_ensemble_var", visualize(var_ensemble[0, ...]), j)
+
+        # Calculate and store the dice score
+        dice_score = dice_coefficient(pred_ensemble, seg)
+        all_dice_scores.append(dice_score.item())
+
+        # # Calculate moving average Dice
+        running_avg_dice = np.mean(all_dice_scores)
+
+        # #  Log the running average to TensorBoard for this step (slice j)
+        logger.logkv("eval/running_average_dice", running_avg_dice)
+        
+        # # Log the individual dice score for this slice as well
+        logger.logkv("eval/slice_dice_score", dice_score.item())
+
+        # # Critical (or maybe not??) to Log the slice number 'j' as the 'step'
+        # logger.logkv("step", j)
+
+        # # Dump the key-values. TensorBoard will now use 'j' as the step.
+        logger.dumpkvs()
+
+
+        # logger.log(f"Dice score for {slice_ID}: {dice_score.item()}")
+        logger.log(
+            f"Slice {slice_ID} | "
+            f"Dice: {dice_score.item():.4f} | "
+            f"Running Avg Dice: {running_avg_dice:.4f}"
+        )
+
+    # After the loop, calculate and log the average dice score
+    avg_dice = np.mean(all_dice_scores)
+    std_dice = np.std(all_dice_scores)
+    logger.log(f"Final Average Dice Score: {avg_dice:.4f} (± {std_dice:.4f})")
 
     logger.log("sampling complete")
 
